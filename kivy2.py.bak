@@ -1,0 +1,472 @@
+from kivy.config import Config
+Config.set('input', 'mouse', 'mouse,multitouch_on_demand')
+Config.set('input', 'wm_touch', '')
+Config.set('input', 'wm_pen', '')
+from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
+from kivy.uix.label import Label
+from kivy.uix.image import AsyncImage
+from kivy.uix.textinput import TextInput
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.widget import Widget
+from kivy.uix.screenmanager import ScreenManager, Screen, FadeTransition
+from kivy.uix.anchorlayout import AnchorLayout
+from kivy.clock import Clock
+from kivy.core.window import Window
+from kivy.graphics import Color, Rectangle, Line, RoundedRectangle
+from kivy.properties import ListProperty
+from kivy.metrics import dp, sp
+from kivy.core.text import LabelBase
+
+# Register Times New Roman fonts globally
+LabelBase.register(name="Times New Roman", 
+                   fn_regular="C:/Windows/Fonts/times.ttf", 
+                   fn_bold="C:/Windows/Fonts/timesbd.ttf",
+                   fn_italic="C:/Windows/Fonts/timesi.ttf",
+                   fn_bolditalic="C:/Windows/Fonts/timesbi.ttf")
+import requests
+import threading
+import math
+import random
+import re
+
+# ==========================================
+# Theme Configuration (Dark Mode)
+# ==========================================
+THEME = {
+    'bg_main': (0.04, 0.07, 0.13, 1),
+    'bg_card': (0.12, 0.16, 0.22, 1),
+    'primary': (0.18, 0.83, 0.75, 1),
+    'secondary': (0.20, 0.83, 0.60, 1),
+    'text': (1, 1, 1, 1),
+    'text_dim': (0.6, 0.65, 0.7, 1),
+    'chart_line': (0.18, 0.83, 0.75, 1)
+}
+Window.clearcolor = THEME['bg_main']
+
+def md_to_bbcode(text):
+    if not text: return ""
+    text = re.sub(r'\*\*(.*?)\*\*', r'[b][color=2DD4BF]\1[/color][/b]', text)
+    text = re.sub(r'### (.*?)\n', r'\n[b][size=20]\1[/size][/b]\n', text)
+    text = re.sub(r'## (.*?)\n', r'\n[b][size=22]\1[/size][/b]\n', text)
+    text = re.sub(r'^\s*-\s+(.*)', r'  • \1', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*(\d+\.)\s+(.*)', r'  \1 \2', text, flags=re.MULTILINE)
+    return text
+
+class Card(BoxLayout):
+    bg_color = ListProperty(THEME['bg_card'])
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.padding = dp(20)
+        self.bind(pos=self.update_canvas, size=self.update_canvas)
+
+    def update_canvas(self, *args):
+        self.canvas.before.clear()
+        with self.canvas.before:
+            Color(*self.bg_color)
+            RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(12)])
+
+class BigActionButton(Button):
+    def __init__(self, **kwargs):
+        kwargs.setdefault('font_name', 'Times New Roman')
+        super().__init__(**kwargs)
+        self.background_color = (0, 0, 0, 0)
+        self.color_normal = THEME['primary']
+        self.color_down = tuple(x * 0.8 for x in THEME['primary'][:3]) + (1,)
+        self.halign = 'center'
+        self.valign = 'middle'
+        self.bind(pos=self.update_canvas, size=self.update_bounds, state=self.update_canvas)
+        
+    def update_bounds(self, *args):
+        self.text_size = self.size
+        self.update_canvas()
+        
+    def update_canvas(self, *args):
+        self.canvas.before.clear()
+        with self.canvas.before:
+            Color(0.3, 0.3, 0.3, 1) if self.disabled else Color(*(self.color_down if self.state == 'down' else self.color_normal))
+            RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(8)])
+
+class StatusBadge(Label):
+    def __init__(self, bg_color=THEME['secondary'], **kwargs):
+        kwargs.setdefault('font_name', 'Times New Roman')
+        super().__init__(**kwargs)
+        self.bg_color = bg_color
+        self.color = (0, 0, 0, 1) if bg_color[1] > 0.5 else (1, 1, 1, 1)
+        self.font_size = '14sp'
+        self.bold = True
+        self.size_hint = (None, None)
+        self.bind(texture_size=self.update_size, pos=self.update_canvas, size=self.update_canvas)
+
+    def update_size(self, *args):
+        self.size = (self.texture_size[0] + dp(16), self.texture_size[1] + dp(10))
+
+    def update_canvas(self, *args):
+        self.canvas.before.clear()
+        with self.canvas.before:
+            Color(*self.bg_color)
+            RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(6)])
+
+class ViewButton(Button):
+    def __init__(self, endpoint, **kwargs):
+        kwargs.setdefault('font_name', 'Times New Roman')
+        super().__init__(**kwargs)
+        self.endpoint = endpoint
+        self.background_color = (0, 0, 0, 0)
+        self.color_normal = (0.2, 0.2, 0.25, 1)
+        self.color_selected = THEME['primary']
+        self.selected = False
+        self.halign = 'center'
+        self.valign = 'middle'
+        self.bind(pos=self.update_canvas, size=self.update_bounds, state=self.update_canvas)
+        
+    def update_bounds(self, *args):
+        self.text_size = self.size
+        self.update_canvas()
+        
+    def update_canvas(self, *args):
+        self.color = (0, 0, 0, 1) if self.selected else (1, 1, 1, 1)
+        self.canvas.before.clear()
+        with self.canvas.before:
+            Color(*self.color_selected) if self.selected else Color(*self.color_normal)
+            RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(6)])
+
+class CenteredTextInput(TextInput):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.bind(size=self._update_padding, line_height=self._update_padding)
+
+    def _update_padding(self, *args):
+        self.padding = [dp(15), max(0, (self.height - self.line_height) / 2.0), dp(15), 0]
+
+class DashboardScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.selected_view = "cockpit" 
+        self.view_buttons = {}
+        self.layout = BoxLayout(orientation='vertical', padding=dp(20), spacing=dp(15))
+        
+        self.header_box = BoxLayout(size_hint=(1, 0.10))
+        self.header_box.add_widget(AsyncImage(source=r'c:\Users\User\Downloads\skin\header_icon_transparent.png', fit_mode='contain'))
+        self.layout.add_widget(self.header_box)
+
+        self.ip_card = Card(size_hint=(1, 0.12), orientation='horizontal', padding=dp(10))
+        self.ip_input = CenteredTextInput(
+            text='10.0.0.78', hint_text='Device IP', size_hint=(1, 1), font_size=sp(22), font_name='Times New Roman',
+            multiline=False, background_color=(0.14, 0.18, 0.25, 1), foreground_color=(1, 1, 1, 1),
+            cursor_color=THEME['primary'], halign='center'
+        )
+        self.ip_card.add_widget(self.ip_input)
+        self.layout.add_widget(self.ip_card)
+
+        box_mon = BoxLayout(orientation='vertical', spacing=dp(15), size_hint=(1, 0.55))
+        img_card = Card(padding=dp(10), size_hint=(1, 0.70))
+        self.image_widget = AsyncImage(source='placeholder.png', fit_mode='contain')
+        img_card.add_widget(self.image_widget)
+        box_mon.add_widget(img_card)
+
+        hud_row = BoxLayout(size_hint=(1, 0.30), spacing=dp(15))
+        
+        diag_card = Card(orientation='vertical', padding=[dp(20), dp(10), dp(20), dp(10)], size_hint=(0.60, 1))
+        
+        self.diag_val = Label(text='--', color=THEME['text'], font_size='26sp', font_name='Times New Roman', bold=True, size_hint=(1, 1), halign='center', valign='middle')
+        self.diag_val.bind(size=lambda inst, size: setattr(inst, 'text_size', size))
+        diag_card.add_widget(self.diag_val)
+        hud_row.add_widget(diag_card)
+
+        badge_card = Card(orientation='vertical', padding=dp(10), spacing=dp(10), size_hint=(0.40, 1))
+        
+        # Severity Box (Top)
+        anchor_sev = AnchorLayout(anchor_x='right', anchor_y='bottom')
+        self.sev_badge = StatusBadge(bg_color=(0.9, 0.3, 0.3, 1), text='--')
+        anchor_sev.add_widget(self.sev_badge)
+        badge_card.add_widget(anchor_sev)
+        
+        # Confidence Box (Bottom)
+        anchor_conf = AnchorLayout(anchor_x='right', anchor_y='top')
+        self.conf_badge = StatusBadge(bg_color=THEME['secondary'], text='--%')
+        anchor_conf.add_widget(self.conf_badge)
+        badge_card.add_widget(anchor_conf)
+        
+        hud_row.add_widget(badge_card)
+        
+        box_mon.add_widget(hud_row)
+        self.layout.add_widget(box_mon)
+
+        self.card_view = Card(size_hint=(1, 0.12), orientation='vertical', padding=dp(8))
+        self.btn_container = BoxLayout(size_hint=(1, 1), spacing=dp(15))
+        views = [("RGB", "rgb"), ("31-Band", "recon"), ("Curve", "curve"), ("Cockpit", "cockpit")]
+        for label, endpoint in views:
+            btn = ViewButton(endpoint=endpoint, text=label, size_hint=(0.25, 1), font_size=sp(15), font_name='Times New Roman', bold=True)
+            btn.bind(on_press=self.on_view_selected)
+            if endpoint == "cockpit": btn.selected = True
+            self.view_buttons[endpoint] = btn
+            self.btn_container.add_widget(btn)
+        self.card_view.add_widget(self.btn_container)
+        self.layout.add_widget(self.card_view)
+
+        self.box_btn = BoxLayout(size_hint=(1, 0.15), spacing=dp(20))
+        self.btn_fetch = BigActionButton(text='Get Result', size_hint=(0.5, 1), font_size='18sp', font_name='Times New Roman', bold=True)
+        self.btn_fetch.bind(on_press=self.fetch_data)
+        self.btn_analysis = BigActionButton(text='Analysis', size_hint=(0.5, 1), font_size='18sp', font_name='Times New Roman', bold=True)
+        self.btn_analysis.background_color = (0, 0, 0, 0)
+        self.btn_analysis.color_normal = THEME['secondary']
+        self.btn_analysis.color_down = tuple(x * 0.8 for x in THEME['secondary'][:3]) + (1,)
+        self.btn_analysis.bind(on_press=self.start_analysis)
+        self.btn_analysis.disabled = True
+        self.box_btn.add_widget(self.btn_fetch)
+        self.box_btn.add_widget(self.btn_analysis)
+        self.layout.add_widget(self.box_btn)
+
+        self.add_widget(self.layout)
+        Window.bind(size=self.on_window_resize)
+
+    def on_window_resize(self, window, size):
+        width, height = size
+        # Base UI designed for ~800x600. Scale directly with window size.
+        scale = min(width / 800.0, height / 600.0)
+        
+        # Scale remaining static internal paddings and spacings downwards infinitely
+        self.layout.padding = [max(sp(4), sp(20) * scale)]
+        self.layout.spacing = max(sp(4), sp(15) * scale)
+        self.btn_container.spacing = max(sp(4), sp(15) * scale)
+        self.box_btn.spacing = max(sp(4), sp(20) * scale)
+        self.card_view.padding = [max(sp(2), sp(8) * scale)]
+        self.ip_card.padding = [max(sp(2), sp(10) * scale)]
+        
+        self.ip_input.font_size = sp(22 * scale)
+        self.diag_val.font_size = sp(26 * scale)
+        self.conf_badge.font_size = sp(14 * scale)
+        self.sev_badge.font_size = sp(11 * scale)
+        
+        for btn in self.view_buttons.values():
+            btn.font_size = sp(15 * scale)
+        self.btn_fetch.font_size = sp(18 * scale)
+        self.btn_analysis.font_size = sp(18 * scale)
+
+    def on_view_selected(self, instance):
+        self.selected_view = instance.endpoint
+        for ep, btn in self.view_buttons.items():
+            btn.selected = (ep == self.selected_view)
+            btn.update_canvas()
+        
+        ip = self.ip_input.text.strip()
+        if ip and self.btn_analysis.disabled == False:
+            self.image_widget.source = f"http://{ip}:5000/api/image/{self.selected_view}?rand={random.randint(1,1000)}"
+            self.image_widget.reload()
+
+    def set_btn_text(self, btn, text): btn.text = text
+
+    def fetch_data(self, instance):
+        ip = self.ip_input.text.strip()
+        if not ip: return
+        self.btn_fetch.text = "Fetching..."
+        def run():
+            try:
+                res = requests.get(f"http://{ip}:5000/api/data", timeout=5)
+                if res.status_code == 200:
+                    Clock.schedule_once(lambda dt: self.update_dashboard(res.json(), ip))
+                else: Clock.schedule_once(lambda dt: self.set_btn_text(self.btn_fetch, "Error"))
+            except Exception as e:
+                Clock.schedule_once(lambda dt: self.set_btn_text(self.btn_fetch, "Conn Err"))
+            Clock.schedule_once(lambda dt: self.set_btn_text(self.btn_fetch, "Get Result"), 2)
+        threading.Thread(target=run, daemon=True).start()
+
+    def update_dashboard(self, data, ip):
+        self.btn_fetch.text = "Get Result"
+        if data.get('success'):
+            self.diagnosis = data.get('diagnosis', 'Unknown')
+            self.accuracy = data.get('accuracy', 0)
+            self.severity = data.get('severity', 'Unknown Stage')
+            self.wavelengths = data.get('wavelengths', {})
+            self.selected_wavelength = data.get('selected_wavelength', 'combined')
+            
+            self.diag_val.text = self.diagnosis
+            self.conf_badge.text = f"{self.accuracy}%"
+            
+            # Dynamic Severity Badge Coloring
+            sev_clean = self.severity.replace('(', '').replace(')', '')
+            words = sev_clean.split()
+            if len(words) > 0:
+                words = [words[0].capitalize()] + [w.upper() if w.upper() in ["I", "II", "III", "IV", "V"] else w.lower() for w in words[1:]]
+                sev_sentence = " ".join(words)
+            else:
+                sev_sentence = sev_clean
+            self.sev_badge.text = sev_sentence
+            
+            sev_upper = sev_clean.upper()
+            if "HIGH" in sev_upper or "SEVERE" in sev_upper: self.sev_badge.bg_color = (0.9, 0.3, 0.3, 1) # Red
+            elif "MODERATE" in sev_upper: self.sev_badge.bg_color = (0.9, 0.6, 0.2, 1) # Orange
+            else: self.sev_badge.bg_color = (0.2, 0.6, 0.8, 1) # Blue
+            
+            self.image_widget.source = f"http://{ip}:5000/api/image/{self.selected_view}?rand={random.randint(1,1000)}"
+            self.image_widget.reload()
+            self.btn_analysis.disabled = False
+        else: self.btn_fetch.text = "DATA ERR"
+
+    def start_analysis(self, instance):
+        self.btn_analysis.disabled = True
+        self.btn_analysis.text = "ANALYZING..."
+        def run():
+            try:
+                advice = self.get_ai_advice()
+                Clock.schedule_once(lambda dt: self.show_result(advice))
+            except Exception as e: Clock.schedule_once(lambda dt: self.show_result(f"Error: {e}"))
+        threading.Thread(target=run, daemon=True).start()
+
+    def get_ai_advice(self):
+        # AI CONFIGURATION
+        AI_PROVIDER = "dashscope" # Options: "dashscope", "openai"
+        
+        # To use ChatGPT, set AI_PROVIDER="openai" and paste your Open AI API key below
+        OPENAI_API_KEY = "sk-xxxxxxxx" 
+        DASHSCOPE_API_KEY = "sk-e6dc062be8a04a37a077d2327c5233ac"
+        
+        URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+        if AI_PROVIDER == "openai":
+            URL = "https://api.openai.com/v1/chat/completions"
+        
+        API_KEY = OPENAI_API_KEY if AI_PROVIDER == "openai" else DASHSCOPE_API_KEY
+
+        view_desc = {
+            "rgb": "Visible clinical surface texture and presentation.",
+            "recon": "Deep 31-Band Hyperspectral mapping derived algorithmically from sparse 7-channel hardware inputs to reveal exact morphological patterns.",
+            "curve": "A pure continuous theoretical spectral curve overlay (700-1000nm). This confirms the structural shape matches the clinical manifestation of the localized damage.",
+            "cockpit": "White-Box Biophysical Pipeline showing decoupled hemodynamics (780nm), Sub-dermal trapped fluid edema (970nm), and underlying lipid barrier disruption (940nm)."
+        }
+        
+        import os
+        rag_repo_path = r"c:\Users\User\Downloads\skin\app\rag_repo"
+        lit_file = os.path.join(rag_repo_path, f"view_{self.selected_view}.txt")
+        lit = ""
+        if os.path.exists(lit_file):
+            with open(lit_file, "r", encoding="utf-8") as f:
+                lit = f.read().strip()
+                
+        detail = view_desc.get(self.selected_view, "")
+        
+        sel_wl = getattr(self, 'selected_wavelength', 'combined')
+        
+        target_str = f"Focus on {sel_wl}nm" if sel_wl != "combined" else "Focus on the complete multi-spectral footprint"
+        wl_str = f"{sel_wl}nm" if sel_wl != "combined" else "these specific wavelengths"
+        
+        wl_text = "\n".join([f"- **{wl}**: {desc}" for wl, desc in getattr(self, 'wavelengths', {}).items()])
+        if wl_text:
+            wl_text = "\n\n### Hyperspectral Wavelength Biomarkers Context:\n" + wl_text
+        
+        prompt = f"""Act as a senior dermatologist and clinical specialist with expertise in multispectral imaging. Analyze the following preliminary diagnostic result derived from a dermatological screening model:
+
+Diagnosis: {self.diagnosis}
+Model Confidence: {self.accuracy}%
+Severity Staging: {self.severity}
+Current Visual Stream: {self.selected_view.upper()}
+Targeted Wavelength: {wl_str}
+
+Please provide a comprehensive professional clinical assessment with emphasis on the specific biophysical characteristics:
+
+## 1. **Multispectral Imaging Analysis** ({target_str})
+Based on recent research in hyperspectral and multispectral imaging:
+{lit}{wl_text}
+
+## 2. **Clinical Overview with Multispectral Correlation**
+Provide a technical explanation of {self.diagnosis} with specific reference to its characteristic spectral signatures at {wl_str}, especially in early stages. Correlate this with the Severity Staging of {self.severity}.
+
+## 3. **Standard of Care** 
+Recommended medical interventions, with consideration of how these multispectral structural findings might influence treatment selection and monitoring.
+
+## 4. **Patient Management**
+Lifestyle modifications and home care advice, incorporating insights from hyperspectral imaging research on environmental factors affecting skin spectral properties.
+
+## 5. **Follow-up Protocol**
+Recommended monitoring schedule, including potential role of multi-modal hyperspectral imaging in tracking treatment response.
+
+**Constraints:**
+- Response must be strictly in **English**.
+- Maintain a professional, objective, and empathetic medical tone.
+- Focus specifically on the {self.selected_view.upper()} visualization and its underlying {wl_str} physics.
+- **Critical Disclaimer**: Clearly state this is an AI-assisted analysis based on multispectral imaging literature and not a substitute for in-person biopsy, histopathological examination, or clinical diagnosis by a qualified dermatologist.
+- Emphasize that hyperspectral imaging provides complementary data but requires clinical correlation."""
+
+        try:
+            print(f"\n[AI DEBUG] ====================")
+            print(f"[AI DEBUG] PROMPT SENT TO {AI_PROVIDER.upper()}:")
+            print(f"[AI DEBUG] {prompt}")
+            print(f"[AI DEBUG] ====================")
+            
+            payload = {
+                "model": "qwen-max" if AI_PROVIDER == "dashscope" else "gpt-4-turbo", 
+                "messages": [{"role": "system", "content": "You are a Medical Physicist & Expert Dermatologist."}, {"role": "user", "content": prompt}], 
+                "max_tokens": 1200
+            }
+            res = requests.post(URL, headers={"Authorization": f"Bearer {API_KEY}"}, json=payload, timeout=120)
+            
+            print(f"[AI DEBUG] HTTP STATUS: {res.status_code}")
+            print(f"[AI DEBUG] RESPONSE DATA: {res.text}")
+            print(f"[AI DEBUG] ====================\n")
+            
+            if res.status_code == 200: return res.json()['choices'][0]['message']['content']
+            else: return f"API Error {res.status_code}: {res.text}"
+        except requests.exceptions.Timeout:
+            return "Connection Error: AI generation timed out after 120s. \n\n*Note: The RAG literature is NOT downloading from the internet; it is mapped locally. The delay occurs strictly because DashScope's Qwen model is analyzing complex physics. Open kivy2.py and set AI_PROVIDER='openai' to use ChatGPT.*"
+        except Exception as e: return f"Connection Error: {e}"
+
+    def show_result(self, text):
+        self.btn_analysis.disabled = False
+        self.btn_analysis.text = "ANALYSIS"
+        App.get_running_app().analysis_screen.update_report(self.diagnosis, self.accuracy, self.selected_view.upper(), md_to_bbcode(text))
+        App.get_running_app().screen_manager.current = 'analysis'
+
+class AnalysisScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = BoxLayout(orientation='vertical', padding=dp(25), spacing=dp(20))
+        box = BoxLayout(size_hint=(1, None), height=dp(60))
+        box.add_widget(Label(text='Biophysical Report', color=THEME['text'], font_size='28sp', font_name='Times New Roman', bold=True, halign='left', valign='middle'))
+        self.layout.add_widget(box)
+
+        card = Card(orientation='vertical', padding=dp(20), size_hint=(1, 1))
+        scroll = ScrollView(size_hint=(1, 1), bar_width=dp(5))
+        self.report_label = Label(text='Wait...', size_hint_y=None, color=THEME['text'], font_size='18sp', font_name='Times New Roman', line_height=1.5, halign='left', valign='top', markup=True)
+        self.report_label.bind(width=lambda *x: self.report_label.setter('text_size')(self.report_label, (self.report_label.width, None)))
+        self.report_label.bind(texture_size=lambda *x: self.report_label.setter('height')(self.report_label, self.report_label.texture_size[1]))
+        scroll.add_widget(self.report_label)
+        card.add_widget(scroll)
+        self.layout.add_widget(card)
+
+        btn_box = BoxLayout(size_hint=(1, None), height=dp(70), spacing=dp(20))
+        back_btn = Button(text='< BACK TO CONSOLE', background_color=(0, 0, 0, 0), color=THEME['primary'], font_size='18sp', font_name='Times New Roman', bold=True)
+        def update_back(inst, val):
+            inst.canvas.before.clear()
+            with inst.canvas.before:
+                Color(1, 1, 1, 0.05)
+                RoundedRectangle(pos=inst.pos, size=inst.size, radius=[dp(8)])
+        back_btn.bind(pos=update_back, size=update_back)
+        back_btn.bind(on_press=self.go_back)
+        btn_box.add_widget(back_btn)
+        self.layout.add_widget(btn_box)
+        self.add_widget(self.layout)
+
+    def update_report(self, diagnosis, accuracy, mode, text):
+        full_text = f"[b]CLINICAL DIAGNOSIS:[/b] {diagnosis} ([color=2DD4BF]{accuracy}%[/color] Confidence)\n"
+        full_text += f"[b]BIOPHYSICAL SEVERITY:[/b] [color=F87171]{getattr(App.get_running_app().dashboard_screen, 'severity', 'Unknown')}[/color]\n"
+        full_text += f"[b]ANALYTICAL BACKBONE:[/b] [color=34D399]{mode}[/color] Multi-modal View\n"
+        full_text += "-"*50 + "\n\n" + text
+        self.report_label.text = full_text
+        for child in self.children[0].children:
+            if isinstance(child, Card): child.children[0].scroll_y = 1
+
+    def go_back(self, instance): App.get_running_app().screen_manager.current = 'dashboard'
+
+class MedicalApp(App):
+    def build(self):
+        self.title = 'DermaSpectra Application'
+        self.screen_manager = ScreenManager(transition=FadeTransition())
+        self.dashboard_screen = DashboardScreen(name='dashboard')
+        self.analysis_screen = AnalysisScreen(name='analysis')
+        self.screen_manager.add_widget(self.dashboard_screen)
+        self.screen_manager.add_widget(self.analysis_screen)
+        return self.screen_manager
+
+if __name__ == '__main__':
+    MedicalApp().run()

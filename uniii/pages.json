@@ -1,0 +1,24 @@
+{
+    "pages": [
+        {
+            "path": "pages/index/index",
+            "style": {
+                "navigationBarTitleText": "DermaSpectra",
+                "navigationStyle": "custom"
+            }
+        },
+        {
+            "path": "pages/report/report",
+            "style": {
+                "navigationBarTitleText": "Analysis Report",
+                "navigationStyle": "custom"
+            }
+        }
+    ],
+    "globalStyle": {
+        "navigationBarTextStyle": "white",
+        "navigationBarTitleText": "DermaSpectra",
+        "navigationBarBackgroundColor": "#0A0D21",
+        "backgroundColor": "#0A0D21"
+    }
+}

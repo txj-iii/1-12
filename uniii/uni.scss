@@ -1,0 +1,16 @@
+/* 主题色 */
+$bg-main: #0A0D21;
+$bg-card: #1F2937;
+$primary: #2DD4BF;
+$secondary: #34D399;
+$text: #FFFFFF;
+$text-dim: #9CA3AF;
+$danger: #EF4444;
+$warning: #F59E0B;
+
+.card {
+    background-color: $bg-card;
+    border-radius: 12px;
+    padding: 20rpx;
+    margin-bottom: 15rpx;
+}

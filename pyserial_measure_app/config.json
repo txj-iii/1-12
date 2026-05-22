@@ -1,0 +1,10 @@
+{
+  "channel_count": 6,
+  "port": "COM1",
+  "baudrate": 115200,
+  "filter": {
+    "mode": "none",
+    "limit_threshold": 10.0,
+    "average_window": 5
+  }
+}

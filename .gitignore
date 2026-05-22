@@ -1,0 +1,25 @@
+# === 第三方运行环境 / 依赖 (21 GB) ===
+GPT-SoVITS-v2pro-20250604/
+Volume/
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# === 生成的输出 / 缓存 ===
+tts_cache/
+exports/
+pyserial_measure_app/exports/
+
+# === uni-app 构建产物 ===
+uniii/unpackage/
+
+# === IDE / 工具配置 ===
+.idea/
+.vscode/
+.claude/
+
+# === OS ===
+.DS_Store
+Thumbs.db
