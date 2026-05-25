@@ -1,11 +1,20 @@
-"""
-DermaSpectra 统一后端服务
-- /api/predict    词汇分类预测 (本地)
-- /api/data       转发到成像设备
-- /api/image/<view>  转发到成像设备
-"""
+"""DermaSpectra 统一后端服务"""
 import os
 import sys
+
+# ── 引导：确保使用有 numpy 的 Python ──
+if "DermaSpectra_BOOTSTRAPPED" not in os.environ:
+    try:
+        import numpy as _numpy_check
+    except ImportError:
+        for _py in [
+            r"C:\Software\anaconda3\python.exe",
+            r"C:\Users\Embark\anaconda3\python.exe",
+        ]:
+            if os.path.exists(_py):
+                os.environ["DermaSpectra_BOOTSTRAPPED"] = "1"
+                os.execv(_py, [_py, __file__] + sys.argv[1:])
+        sys.exit("Error: numpy not found. Please install numpy or set up Anaconda Python.")
 import csv
 import pickle
 import glob
@@ -52,7 +61,8 @@ LLM_CONFIG = {
         "model": "qwen-max",
     }
 }
-TTS_API_URL = os.environ.get("TTS_API_URL", "http://127.0.0.1:9880")
+TTS_API_URL = os.environ.get("TTS_API_URL", "http://127.0.0.1:9880/tts")
+TTS_REF_AUDIO = os.environ.get("TTS_REF_AUDIO", "Haogang.wav")
 TTS_CACHE_DIR = os.path.join(ROOT, "tts_cache")
 
 app = Flask(__name__)
@@ -112,7 +122,7 @@ def load_csv_data(filepath):
         reader = csv.reader(f)
         next(reader)
         for row in reader:
-            rows.append([float(x) for x in row[:6]])
+            rows.append([float(x) for x in row[:2]])  # CH1-2 石墨烯传感器 (CH3不稳定，训练未使用)
     arr = np.array(rows)
     # 裁剪异常值
     for ch in range(arr.shape[1]):
@@ -134,10 +144,13 @@ def find_latest_csv():
 
 
 def load_model():
-    files = sorted(os.listdir(MODEL_DIR))
-    if not files:
+    # 加载最新训练的模型 (按修改时间, 排除备份文件)
+    model_files = [f for f in os.listdir(MODEL_DIR)
+                   if f.endswith('.pkl') and not any(tag in f for tag in ['_old', '_6ch', '_192files', '_261files'])]
+    if not model_files:
         return None, "Model file not found, please run train_model.py first"
-    with open(os.path.join(MODEL_DIR, files[-1]), "rb") as f:
+    latest = max(model_files, key=lambda f: os.path.getmtime(os.path.join(MODEL_DIR, f)))
+    with open(os.path.join(MODEL_DIR, latest), "rb") as f:
         data = pickle.load(f)
     return data, None
 
@@ -164,7 +177,7 @@ def run_prediction(filepath):
     active_segments = find_active_segments(norm_full)
     all_windows = []
     for s, e in active_segments:
-        seg_raw = raw[s:e]  # 原始裁剪数据，不做归一化（模型在原始数据上训练的）
+        seg_raw = raw[s:e]
         seg_windows = parse_windows_from_array(seg_raw, window_size, window_inc)
         if len(seg_windows) > 0:
             all_windows.append(seg_windows)
@@ -305,7 +318,7 @@ def tts_generate(text):
     try:
         resp = http_req.post(
             TTS_API_URL,
-            json={"text": text, "text_language": "zh"},
+            json={"text": text, "text_lang": "zh", "ref_audio_path": TTS_REF_AUDIO, "prompt_lang": "zh"},
             timeout=60,
         )
         if resp.status_code == 200:
@@ -458,9 +471,14 @@ def tts_config():
         return jsonify({"success": False, "error": "port parameter required"}), 400
     host = data.get("host", "127.0.0.1")
     port = int(data["port"])
-    new_url = f"http://{host}:{port}"
+    new_url = f"http://{host}:{port}/tts"
     try:
-        resp = http_req.post(new_url, json={"text": "test", "text_language": "zh"}, timeout=5)
+        resp = http_req.post(new_url, json={
+            "text": "test",
+            "text_lang": "zh",
+            "ref_audio_path": TTS_REF_AUDIO,
+            "prompt_lang": "zh",
+        }, timeout=10)
         if resp.status_code == 200:
             global TTS_API_URL
             TTS_API_URL = new_url
@@ -509,4 +527,4 @@ if __name__ == "__main__":
     print(f"  Model directory: {MODEL_DIR}")
     for d in EXPORTS_DIRS:
         print(f"  Export directory: {d}")
-    app.run(host="0.0.0.0", port=FLASK_PORT, debug=True)
+    app.run(host="0.0.0.0", port=FLASK_PORT, debug=False)

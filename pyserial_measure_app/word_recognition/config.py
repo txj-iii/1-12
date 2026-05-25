@@ -14,9 +14,12 @@ CLASS_NAMES = [CLASS_MAPPING[i] for i in sorted(CLASS_MAPPING.keys())]
 NUM_CLASSES = len(CLASS_MAPPING)
 
 # LibEMG 窗口参数 (采样率约10Hz)
-# 实际发音段只有2-4秒(20-40行), 缩小窗口匹配
-WINDOW_SIZE = 20        # ~2秒 (确保覆盖苹果双音节的完整波形)
-WINDOW_INCREMENT = 5    # 高重叠增加窗口数
+# 苹果是双音节(双波峰), 需要更大窗口才能与"我/买"单波峰区分
+WINDOW_SIZE = 20        # ~2秒 (允许句子分词后的短段产生窗口)
+WINDOW_INCREMENT = 10   # 降低重叠，减少rest类窗口数
+
+# 只使用2通道 (石墨烯传感器 CH1-CH2), CH1几乎平直但CH2有区分信号
+N_CHANNELS = 2
 
 # 特征组: HTD = MAV + ZC + SSC + WL
 FEATURES = ['MAV', 'ZC', 'SSC', 'WL']

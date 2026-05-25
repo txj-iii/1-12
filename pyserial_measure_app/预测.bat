@@ -1,44 +1,89 @@
 @echo off
+setlocal
+
 cd /d "%~dp0"
-title 词语识别预测
+title Word Prediction
 
-:: 查找 Anaconda Python
-set PYTHON_CMD=
-if exist "C:\Anaconda\python.exe" set PYTHON_CMD=C:\Anaconda\python.exe
-if exist "%USERPROFILE%\anaconda3\python.exe" set PYTHON_CMD=%USERPROFILE%\anaconda3\python.exe
-if "%PYTHON_CMD%"=="" set PYTHON_CMD=python
+set "PYTHON_CMD="
+if exist "C:\Anaconda\python.exe" set "PYTHON_CMD=C:\Anaconda\python.exe"
+if not defined PYTHON_CMD if exist "%USERPROFILE%\anaconda3\python.exe" set "PYTHON_CMD=%USERPROFILE%\anaconda3\python.exe"
+if not defined PYTHON_CMD if exist "C:\Software\anaconda3\python.exe" set "PYTHON_CMD=C:\Software\anaconda3\python.exe"
+if not defined PYTHON_CMD set "PYTHON_CMD=python"
 
-set EXPORT_DIR=..\exports
+set "SCRIPT=word_recognition\predict.py"
+set "EXPORT_DIR=..\exports"
 
-:: 检查是否拖入了文件
-if not "%1"=="" (
-    "%PYTHON_CMD%" word_recognition\predict.py "%~f1"
-    echo.
-    pause
-    exit /b 0
+set "PYTHON_OK="
+if /i "%PYTHON_CMD%"=="python" (
+    where python >nul 2>nul
+    if not errorlevel 1 set "PYTHON_OK=1"
+) else (
+    if exist "%PYTHON_CMD%" set "PYTHON_OK=1"
 )
 
-:: 无参数，弹出选择
-echo 可用 CSV 文件（%EXPORT_DIR%\）：
-echo.
-dir "%EXPORT_DIR%\*.csv" /b 2>nul
-if errorlevel 1 (
-    echo 未找到 CSV 文件，请先录数据到 exports 目录
+if not defined PYTHON_OK (
+    echo Error: Python not found.
+    echo Tried: %PYTHON_CMD%
     pause
     exit /b 1
 )
 
-echo.
-set /p FILE="请输入CSV文件名: "
-if "%FILE%"=="" (
-    echo 输入无效
+if not exist "%SCRIPT%" (
+    echo Error: Script not found: %SCRIPT%
     pause
     exit /b 1
 )
 
-echo.
-echo 正在预测 %FILE% ...
-"%PYTHON_CMD%" word_recognition\predict.py "%EXPORT_DIR%\%FILE%"
+if not "%~1"=="" goto predict_arg
+goto interactive
 
+:predict_arg
+if not exist "%~f1" (
+    echo Error: CSV file not found:
+    echo %~f1
+    pause
+    exit /b 1
+)
+
+echo Running prediction for:
+echo %~f1
+echo.
+"%PYTHON_CMD%" "%SCRIPT%" "%~f1"
 echo.
 pause
+exit /b %errorlevel%
+
+:interactive
+dir /b "%EXPORT_DIR%\*.csv" >nul 2>nul
+if errorlevel 1 (
+    echo Error: No CSV files found in %EXPORT_DIR%
+    pause
+    exit /b 1
+)
+
+echo Available CSV files in %EXPORT_DIR%:
+echo.
+dir /b "%EXPORT_DIR%\*.csv"
+echo.
+set /p "FILE=Enter CSV file name: "
+
+if "%FILE%"=="" (
+    echo Error: Empty input.
+    pause
+    exit /b 1
+)
+
+if not exist "%EXPORT_DIR%\%FILE%" (
+    echo Error: CSV file not found:
+    echo %EXPORT_DIR%\%FILE%
+    pause
+    exit /b 1
+)
+
+echo Running prediction for:
+echo %EXPORT_DIR%\%FILE%
+echo.
+"%PYTHON_CMD%" "%SCRIPT%" "%EXPORT_DIR%\%FILE%"
+echo.
+pause
+exit /b %errorlevel%

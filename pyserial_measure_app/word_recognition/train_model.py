@@ -30,6 +30,7 @@ from word_recognition.config import (
     FEATURES,
     CLASSIFIER,
     LABELED_DATA_DIR,
+    N_CHANNELS,
 )
 from word_recognition.features import extract_features, parse_windows_from_array
 
@@ -56,6 +57,9 @@ def load_labeled_data(data_dir: str):
         data = np.loadtxt(filepath, delimiter=",")
         if data.ndim == 1:
             data = data.reshape(-1, 1)
+        # 只取前 N_CHANNELS 通道 (CH1-CH3 石墨烯传感器, CH4-6 无传感器)
+        if data.shape[1] > N_CHANNELS:
+            data = data[:, :N_CHANNELS]
 
         all_data.append(data)
         all_classes.append(cls)
@@ -88,6 +92,10 @@ def main():
 
     for data, cls, rep in zip(data_list, class_list, rep_list):
         windows = parse_windows_from_array(data, WINDOW_SIZE, WINDOW_INCREMENT)
+        # 限制每个词类文件最多5个窗口，避免长录音主导训练
+        if cls != 0 and len(windows) > 5:
+            idx = np.random.RandomState(42).choice(len(windows), size=5, replace=False)
+            windows = windows[idx]
         if len(windows) > 0:
             all_windows.append(windows)
             all_classes.append(np.full(len(windows), cls))
@@ -105,7 +113,7 @@ def main():
         print(f"    类别 {int(cls_id)} ({name}): {cnt} 窗口")
 
     # 3. 划分: 80/20 随机分层
-    print(f"\n[3/5] 划分数据: 80/20 分层随机")
+    print(f"\n[3/6] 划分数据: 80/20 分层随机")
     train_idx, test_idx = train_test_split(
         np.arange(len(windows)), test_size=0.2,
         stratify=classes, random_state=42
@@ -119,14 +127,33 @@ def main():
     print(f"  测试集: {len(test_windows)} 窗口")
 
     # 4. 特征提取
-    print(f"\n[4/5] 特征提取: {FEATURES}")
+    print(f"\n[4/6] 特征提取: {FEATURES}")
     train_features = extract_features(FEATURES, train_windows)
     test_features = extract_features(FEATURES, test_windows)
     print(f"  训练特征维度: {train_features.shape}")
     print(f"  测试特征维度: {test_features.shape}")
 
-    # 5. 训练
-    print(f"\n[5/5] 训练分类器: {CLASSIFIER}")
+    # 5. 平衡训练集: 下采样 rest 类避免类别失衡
+    print(f"\n[5/6] 平衡训练集: 下采样 rest 类")
+    rest_mask = train_labels == 0
+    word_mask = ~rest_mask
+    n_word = word_mask.sum()
+    # rest 窗口数限制为 word 的 3 倍
+    max_rest = n_word * 3
+    if rest_mask.sum() > max_rest:
+        rest_idx = np.where(rest_mask)[0]
+        keep_rest = np.random.RandomState(42).choice(rest_idx, size=max_rest, replace=False)
+        keep_mask = np.zeros(len(train_labels), dtype=bool)
+        keep_mask[keep_rest] = True
+        keep_mask[word_mask] = True
+        train_features = train_features[keep_mask]
+        train_labels = train_labels[keep_mask]
+        print(f"  rest: {rest_mask.sum()} → {max_rest}, word: {n_word}")
+    else:
+        print(f"  rest: {rest_mask.sum()}, word: {n_word} (无需下采样)")
+
+    # 6. 训练
+    print(f"\n[6/6] 训练分类器: {CLASSIFIER}")
     if CLASSIFIER == 'RF':
         clf = RandomForestClassifier(n_estimators=200, max_depth=10,
                                      class_weight='balanced', random_state=42)

@@ -12,8 +12,8 @@ tts_cache/
 exports/
 pyserial_measure_app/exports/
 
-# === uni-app 构建产物 ===
-uniii/unpackage/
+# === uni-app ===
+uniii/
 
 # === IDE / 工具配置 ===
 .idea/

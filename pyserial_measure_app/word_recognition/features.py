@@ -4,6 +4,18 @@
 import numpy as np
 
 
+def normalize_channels(data: np.ndarray) -> np.ndarray:
+    """Per-channel z-score归一化: 每通道独立减均值除标准差。
+
+    消除CH1(~1.7平直)与CH2(~3-400有信号)之间的量级差异，
+    使两个通道在特征提取时贡献均等。
+    """
+    means = np.mean(data, axis=0, keepdims=True)
+    stds = np.std(data, axis=0, keepdims=True)
+    stds[stds < 1e-8] = 1.0
+    return (data - means) / stds
+
+
 def extract_mav(windows: np.ndarray) -> np.ndarray:
     """Mean Absolute Value: 每个窗口每通道的绝对值均值."""
     return np.mean(np.abs(windows), axis=2)
